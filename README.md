@@ -11,13 +11,13 @@ Go implementation of a concurrent Rackspace CloudFiles Upload/Download/Delete ap
 ```
 usage: gohaste [options] {delete,upload,download} source [destination]
 
-Delete:
+delete:
     gohaste [options] delete my-container
 
-Upload:
+upload:
     gohaste [options] upload /path/to/files my-container
 
-Download:
+download:
     gohaste [options] download my-container /path/to/files
 
 options:
