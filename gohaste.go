@@ -33,13 +33,13 @@ import (
 )
 
 type Walker struct {
-	Paths []string
+	ci chan string
 }
 
 // Walk is the filepath.Walk WalkFunc to handle recording visited paths
 func (w *Walker) Walk(path string, info os.FileInfo, err error) error {
 	if !info.IsDir() {
-		w.Paths = append(w.Paths, path)
+		w.ci <- path
 	}
 	return nil
 }
@@ -142,33 +142,50 @@ func (c *CloudFiles) Auth() {
 	c.Token = tokens.Access.Token.Id
 }
 
-func (c *CloudFiles) ListObjects() []string {
-	var objects []string
+func (c *CloudFiles) ListObjects(ci chan string) {
 	var resBody []byte
+	var marker string
 	req, _ := http.NewRequest("GET", fmt.Sprintf("%s/%s", c.Endpoint, c.Container), nil)
 	req.Header.Set("X-Auth-Token", c.Token)
 	req.Header.Set("Accept", "text/plain")
 	client := &http.Client{}
 	res, err := client.Do(req)
 	if err != nil {
+		log.Fatal("err != nil")
 		log.Fatal(err)
 	} else if res.StatusCode != 200 {
-		return objects
+		resBody, _ = ioutil.ReadAll(res.Body)
+		fmt.Println(string(resBody))
+		log.Fatal(res.StatusCode)
 	}
 	defer res.Body.Close()
 	resBody, _ = ioutil.ReadAll(res.Body)
-	objects = strings.Split(strings.TrimSpace(string(resBody)), "\n")
-	for len(resBody) > 0 {
-		req.URL, _ = url.ParseRequestURI(fmt.Sprintf("%s/%s?marker=%s", c.Endpoint, c.Container, objects[len(objects)-1]))
-		res, err := client.Do(req)
-		if err != nil {
-			log.Fatal(err)
+	for _, object := range strings.Split(strings.TrimSpace(string(resBody)), "\n") {
+		if len(strings.TrimSpace(object)) == 0 {
+			continue
 		}
-		resBody, _ = ioutil.ReadAll(res.Body)
-		objects = append(objects, strings.Split(strings.TrimSpace(string(resBody)), "\n")...)
-		res.Body.Close()
+		ci <- object
+		marker = object
 	}
-	return objects
+	go func(ci chan string, resBody []byte, marker string) {
+		for len(resBody) > 0 {
+			req.URL, _ = url.ParseRequestURI(fmt.Sprintf("%s/%s?marker=%s", c.Endpoint, c.Container, marker))
+			res, err := client.Do(req)
+			if err != nil {
+				log.Fatal(err)
+			}
+			resBody, _ = ioutil.ReadAll(res.Body)
+			for _, object := range strings.Split(strings.TrimSpace(string(resBody)), "\n") {
+				if len(strings.TrimSpace(object)) == 0 {
+					continue
+				}
+				ci <- object
+				marker = object
+			}
+			res.Body.Close()
+		}
+		close(ci)
+	}(ci, resBody, marker)
 }
 
 // CreateContainer ensures that a container exists
@@ -182,6 +199,8 @@ func (c *CloudFiles) CreateContainer() {
 
 // Upload is a goroutine that uploads files provided by a channel to a CloudFiles container
 func (c *CloudFiles) Upload(thread int, ci chan string, wg *sync.WaitGroup, BasePath string) {
+	fmt.Printf("Creating uploader thread: %03d\n", thread)
+
 	defer wg.Done()
 
 	client := &http.Client{}
@@ -191,14 +210,15 @@ func (c *CloudFiles) Upload(thread int, ci chan string, wg *sync.WaitGroup, Base
 	for path := range ci {
 		ObjPath := strings.TrimPrefix(strings.Replace(path, BasePath, "", 1), "/")
 		fmt.Printf("Thread %03d: uploading %s\n", thread, ObjPath)
+
 		file, err := os.Open(path)
 		if err != nil {
 			log.Print(fmt.Printf("%s\n", err))
 			continue
 		}
+
 		req.URL, _ = url.ParseRequestURI(fmt.Sprintf("%s/%s/%s", c.Endpoint, c.Container, ObjPath))
 		req.Body = file
-		req.ContentLength = 0
 		res, err := client.Do(req)
 		if err != nil {
 			log.Print(fmt.Printf("%s\n", err))
@@ -212,6 +232,8 @@ func (c *CloudFiles) Upload(thread int, ci chan string, wg *sync.WaitGroup, Base
 }
 
 func (c *CloudFiles) Delete(thread int, ci chan string, wg *sync.WaitGroup) {
+	fmt.Printf("Creating deleter thread: %03d\n", thread)
+
 	defer wg.Done()
 
 	client := &http.Client{}
@@ -233,6 +255,8 @@ func (c *CloudFiles) Delete(thread int, ci chan string, wg *sync.WaitGroup) {
 }
 
 func (c *CloudFiles) Download(thread int, ci chan string, wg *sync.WaitGroup, BasePath string) {
+	fmt.Printf("Creating downloader thread: %03d\n", thread)
+
 	defer wg.Done()
 
 	client := &http.Client{}
@@ -292,7 +316,6 @@ func main() {
 	var Password string
 	var Region string
 	var Concurrency int
-	var files []string
 
 	flag.Usage = Usage
 	flag.StringVar(&Username, "username", os.Getenv("OS_USERNAME"), "Username to authenticate with. Defaults to OS_USERNAME")
@@ -327,24 +350,6 @@ func main() {
 	}
 	c.Auth()
 
-	if Operation == "upload" {
-		w = Walker{}
-		filepath.Walk(Src, w.Walk)
-		files = w.Paths
-		c.Container = Dest
-	} else {
-		c.Container = Src
-		files = c.ListObjects()
-	}
-
-	if len(files) == 0 {
-		log.Fatal("No files to operate on")
-	}
-
-	if Operation == "upload" {
-		c.CreateContainer()
-	}
-
 	for i := 0; i < Concurrency; i++ {
 		wg.Add(1)
 		if Operation == "upload" {
@@ -357,13 +362,16 @@ func main() {
 		}
 	}
 
-	for _, path := range files {
-		if len(strings.TrimSpace(path)) == 0 {
-			continue
-		}
-		ci <- path
+	if Operation == "upload" {
+		c.Container = Dest
+		c.CreateContainer()
+		w = Walker{ci: ci}
+		filepath.Walk(Src, w.Walk)
+		close(w.ci)
+	} else {
+		c.Container = Src
+		c.ListObjects(ci)
 	}
 
-	close(ci)
 	wg.Wait()
 }
