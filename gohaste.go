@@ -136,7 +136,7 @@ func (c *CloudFiles) Auth() {
 	}
 
 	if len(c.Endpoint) == 0 {
-		log.Fatal(fmt.Sprintf("No PublicURL found for object-store in region %s", c.Region))
+		log.Fatalf("No PublicURL found for object-store in region %s", c.Region)
 	}
 
 	c.Token = tokens.Access.Token.Id
@@ -150,13 +150,8 @@ func (c *CloudFiles) ListObjects(ci chan string) {
 	req.Header.Set("Accept", "text/plain")
 	client := &http.Client{}
 	res, err := client.Do(req)
-	if err != nil {
-		log.Fatal("err != nil")
-		log.Fatal(err)
-	} else if res.StatusCode != 200 {
-		resBody, _ = ioutil.ReadAll(res.Body)
-		fmt.Println(string(resBody))
-		log.Fatal(res.StatusCode)
+	if err != nil || res.StatusCode != 200 {
+		log.Fatal("Failed to list files")
 	}
 	defer res.Body.Close()
 	resBody, _ = ioutil.ReadAll(res.Body)
@@ -193,8 +188,10 @@ func (c *CloudFiles) CreateContainer() {
 	req, _ := http.NewRequest("PUT", fmt.Sprintf("%s/%s", c.Endpoint, c.Container), bytes.NewBuffer([]byte{}))
 	req.Header.Set("X-Auth-Token", c.Token)
 	client := &http.Client{}
-	res, _ := client.Do(req)
-	fmt.Println(res.StatusCode)
+	res, err := client.Do(req)
+	if err != nil || res.StatusCode-200 > 2 {
+		log.Fatalf("Failed to create container %s", c.Container)
+	}
 }
 
 // Upload is a goroutine that uploads files provided by a channel to a CloudFiles container
@@ -333,7 +330,7 @@ func main() {
 	}
 
 	if Operation != "upload" && Operation != "download" && Operation != "delete" {
-		log.Fatal(fmt.Sprintf("%s not a supported operation", Operation))
+		log.Fatalf("%s not a supported operation", Operation)
 	}
 
 	if Operation != "delete" && len(Dest) == 0 {
