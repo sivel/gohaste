@@ -28,6 +28,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 )
@@ -313,13 +314,17 @@ func main() {
 	var Password string
 	var Region string
 	var Concurrency int
+	var Procs int
 
 	flag.Usage = Usage
 	flag.StringVar(&Username, "username", os.Getenv("OS_USERNAME"), "Username to authenticate with. Defaults to OS_USERNAME")
 	flag.StringVar(&Password, "password", os.Getenv("OS_PASSWORD"), "Password to authenticate with. Defaults to OS_PASSWORD")
 	flag.StringVar(&Region, "region", os.Getenv("OS_REGION_NAME"), "Password to authenticate with. Defaults to OS_REGION_NAME")
 	flag.IntVar(&Concurrency, "concurrency", 10, "Number of cuncurrent operations. Defaults to 10")
+	flag.IntVar(&Procs, "cpus", runtime.NumCPU(), fmt.Sprintf("Number of CPUs to use. Defaults to %d", runtime.NumCPU()))
 	flag.Parse()
+
+	runtime.GOMAXPROCS(Procs)
 
 	Operation := strings.ToLower(flag.Arg(0))
 	Src := flag.Arg(1)

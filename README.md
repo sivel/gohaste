@@ -22,6 +22,7 @@ download:
 
 options:
   -concurrency=10: Number of cuncurrent operations. Defaults to 10
+  -cpus=1: Number of CPUs to use. Defaults to 1
   -password="": Password to authenticate with. Defaults to OS_PASSWORD
   -region="": Password to authenticate with. Defaults to OS_REGION_NAME
   -username="": Username to authenticate with. Defaults to OS_USERNAME
