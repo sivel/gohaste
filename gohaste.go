@@ -151,9 +151,16 @@ func (c *CloudFiles) ListObjects(ci chan string) {
 	req.Header.Set("Accept", "text/plain")
 	client := &http.Client{}
 	res, err := client.Do(req)
-	if err != nil || res.StatusCode != 200 {
+
+	switch {
+	case err != nil:
 		log.Fatal("Failed to list files")
+	case res.StatusCode == 404:
+		log.Fatalf("Container %s does not exist", c.Container)
+	case res.StatusCode != 200 && res.StatusCode != 204:
+		log.Fatalf("Invalid response from server: %v", res)
 	}
+
 	defer res.Body.Close()
 	resBody, _ = ioutil.ReadAll(res.Body)
 	for _, object := range strings.Split(strings.TrimSpace(string(resBody)), "\n") {
@@ -291,7 +298,7 @@ func (c *CloudFiles) Download(thread int, ci chan string, wg *sync.WaitGroup, Ba
 }
 
 func Usage() {
-	fmt.Printf(`usage: %s [options] {delete,upload,download} source [destination]
+	fmt.Printf(`usage: %s [options] {delete,upload,download,list} source [destination]
 
 delete:
     gohaste [options] delete my-container
@@ -301,6 +308,9 @@ upload:
 
 download:
     gohaste [options] download my-container /path/to/files
+
+list:
+    gohaste [options] list [my-container]
 
 options:
 `, path.Base(os.Args[0]))
@@ -330,15 +340,15 @@ func main() {
 	Src := flag.Arg(1)
 	Dest := flag.Arg(2)
 
-	if len(Username) == 0 || len(Password) == 0 || len(Region) == 0 || len(Operation) == 0 || len(Src) == 0 {
+	if len(Username) == 0 || len(Password) == 0 || len(Region) == 0 || len(Operation) == 0 || (Operation != "list" && len(Src) == 0) {
 		Usage()
 	}
 
-	if Operation != "upload" && Operation != "download" && Operation != "delete" {
+	if Operation != "upload" && Operation != "download" && Operation != "delete" && Operation != "list" {
 		log.Fatalf("%s not a supported operation", Operation)
 	}
 
-	if Operation != "delete" && len(Dest) == 0 {
+	if Operation != "delete" && Operation != "list" && len(Dest) == 0 {
 		log.Fatal("'destination' is a required argument for 'upload' and 'download'")
 	}
 
@@ -354,13 +364,21 @@ func main() {
 
 	for i := 0; i < Concurrency; i++ {
 		wg.Add(1)
-		if Operation == "upload" {
+		switch Operation {
+		case "upload":
 			go c.Upload(i, ci, wg, Src)
-		} else if Operation == "download" {
+		case "download":
 			Dest, _ = filepath.Abs(Dest)
 			go c.Download(i, ci, wg, Dest)
-		} else {
+		case "delete":
 			go c.Delete(i, ci, wg)
+		default:
+			go func(ci chan string, wg *sync.WaitGroup) {
+				defer wg.Done()
+				for object := range ci {
+					fmt.Println(object)
+				}
+			}(ci, wg)
 		}
 	}
 
@@ -370,6 +388,8 @@ func main() {
 		w = Walker{ci: ci}
 		filepath.Walk(Src, w.Walk)
 		close(w.ci)
+	} else if Operation == "list" && len(Src) == 0 {
+		c.ListObjects(ci)
 	} else {
 		c.Container = Src
 		c.ListObjects(ci)
