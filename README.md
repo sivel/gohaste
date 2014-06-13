@@ -20,6 +20,9 @@ upload:
 download:
     gohaste [options] download my-container /path/to/files
 
+list:
+    gohaste [options] list [my-container]
+
 options:
   -concurrency=10: Number of cuncurrent operations. Defaults to 10
   -cpus=1: Number of CPUs to use. Defaults to 1
