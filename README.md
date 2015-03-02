@@ -4,7 +4,7 @@ Go implementation of a concurrent Rackspace CloudFiles Upload/Download/Delete ap
 
 ## Binary Downloads
 
-[![Gobuild Download](http://gobuild.io/badge/github.com/sivel/gohaste/download.png)](http://gobuild.io/github.com/sivel/gohaste)
+[Releases](https://github.com/sivel/gohaste/releases)
 
 ## Usage
 
